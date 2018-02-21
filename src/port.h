@@ -11,12 +11,10 @@
 #include "../CMSIS/CM3/DeviceSupport/ST/STM32F10x/stm32f10x.h"
 #include "../CMSIS/CM3/CoreSupport/core_cm3.h"
 
+/* size_t should be defined as "moy_size" */
 typedef uint32_t moy_size;
 
-#define MSP_RETURN 0xFFFFFFF9
-#define PSP_RETURN 0xFFFFFFFD
-
-/* Used in MoyTCB for saving registers */
+/* For using stored registers in stack. */
 typedef struct {
     /* Saved by program manually */
     uint32_t r4;

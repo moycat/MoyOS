@@ -13,6 +13,10 @@ uint8_t task_count = 0;
 uint8_t current_task = (uint8_t)-1;
 uint8_t idle_task_id;
 
+/* Queues. */
+MoyQueue queues[MOY_QUEUE_SIZE];
+uint8_t queue_count = 0;
+
 /* Status. */
 uint8_t started = 0;
 uint8_t critical_depth = 0;
@@ -84,20 +88,22 @@ uint8_t moyCreateTask(
         uint8_t *handler
 )
 {
+    moyEnterCritical();
     /* Check if reaching maximum task number */
     if (task_count == MOY_TASK_SIZE) {
+        moyLeaveCritical();
         return TASK_MAXIMUM_EXCEEDED;
     }
     /* Check if pool is full */
     void *stack_bottom = _moyAllocStack(stack_size);
     if (stack_bottom == 0) {
+        moyLeaveCritical();
         return TASK_MEM_POOL_FULL;
     }
     /* Set handler */
     if (handler != 0) {
         *handler = task_count;
     }
-    moyEnterCritical();
     /* Init TCB */
     MoyTCB *this_task = tasks + task_count++;
     this_task->stack_size = stack_size;
@@ -149,6 +155,18 @@ static inline MoyTCB* FindAvaTask()
 
         MoyTCB *this_task = tasks + this_task_id;
 
+        /* Check queues if awaiting. */
+        if (this_task->status | TASK_BLOCKED_READING_QUEUE) {
+            if (queues[this_task->waiting].status == QUEUE_FILLED) {
+                this_task->status = TASK_READY;
+            }
+        }
+        if (this_task->status | TASK_BLOCKED_WRITING_QUEUE) {
+            if (queues[this_task->waiting].status == QUEUE_EMPTY) {
+                this_task->status = TASK_READY;
+            }
+        }
+
         /* Check if executable */
         if (this_task->status == TASK_READY
                 && this_task->priority > highest_priority) {
@@ -164,7 +182,7 @@ static inline MoyTCB* FindAvaTask()
 
 /*
  * Should be called every tick.
- * Deal with sleep.
+ * Deal with sleep and block.
  */
 void _moyTick()
 {
@@ -172,10 +190,11 @@ void _moyTick()
     int i;
     for (i = 0; i < task_count; ++i) {
         MoyTCB *this_task = tasks + i;
-        /* Deal with sleep */
-        if (this_task->status & TASK_DELAYED) {
+        /* Deal with waiting */
+        if (this_task->status &
+                (TASK_DELAYED | TASK_BLOCKED_READING_QUEUE | TASK_BLOCKED_WRITING_QUEUE)) {
             if (this_task->sleep_time <= MOY_SWITCH_INTERVAL) {
-                this_task->status ^= TASK_DELAYED;
+                this_task->status = TASK_READY;
             } else {
                 this_task->sleep_time -= MOY_SWITCH_INTERVAL;
             }
@@ -196,6 +215,104 @@ moy_size _moySwitch(moy_size stack_top)
     MoyTCB *next_task = FindAvaTask();
 
     return next_task->stack_top;
+}
+
+/*
+ * Create a queue.
+ */
+uint8_t moyCreateQueue(uint8_t *handle)
+{
+    moyEnterCritical();
+    if (queue_count == MOY_QUEUE_SIZE) {
+        moyLeaveCritical();
+        return QUEUE_MAXIMUM_EXCEEDED;
+    }
+    queues[queue_count].status = QUEUE_EMPTY;
+    *handle = queue_count++;
+    moyLeaveCritical();
+    return QUEUE_OK;
+}
+
+/*
+ * Push an item into a queue.
+ * Set timeout to 0 for no waiting.
+ */
+uint8_t moyQueuePush(uint8_t queue_id, moy_size item, moy_size timeout)
+{
+    MoyQueue *this_queue = queues + queue_id;
+    moyEnterCritical();
+
+    /* If empty, just write and return. */
+    if (this_queue->status == QUEUE_EMPTY) {
+        this_queue->item_ptr = item;
+        this_queue->status = QUEUE_FILLED;
+        moyLeaveCritical();
+        return QUEUE_OK;
+    }
+
+    /* Not empty, wait or fail. */
+    if (!timeout) {
+        moyLeaveCritical();
+        return QUEUE_FAILED;
+    }
+    MoyTCB *this_task = tasks + current_task;
+    this_task->status = TASK_BLOCKED_WRITING_QUEUE;
+    this_task->waiting = queue_id;
+    this_task->sleep_time = timeout;
+    moyLeaveCritical();
+    _moyYield();
+
+    /* Now the block has been removed. Let's check the queue. */
+    moyEnterCritical();
+    if (this_queue->status == QUEUE_EMPTY) {
+        this_queue->item_ptr = item;
+        this_queue->status = QUEUE_FILLED;
+        moyLeaveCritical();
+        return QUEUE_OK;
+    }
+    moyLeaveCritical();
+    return QUEUE_FAILED;
+}
+
+/*
+ * Pull an item from a queue.
+ * Set timeout to 0 for no waiting.
+ */
+uint8_t moyQueuePull(uint8_t queue_id, moy_size *item_ptr, moy_size timeout)
+{
+    MoyQueue *this_queue = queues + queue_id;
+    moyEnterCritical();
+
+    /* If empty, just write and return. */
+    if (this_queue->status == QUEUE_FILLED) {
+        *item_ptr = this_queue->item_ptr;
+        this_queue->status = QUEUE_EMPTY;
+        moyLeaveCritical();
+        return QUEUE_OK;
+    }
+
+    /* Not empty, wait or fail. */
+    if (!timeout) {
+        moyLeaveCritical();
+        return QUEUE_FAILED;
+    }
+    MoyTCB *this_task = tasks + current_task;
+    this_task->status = TASK_BLOCKED_READING_QUEUE;
+    this_task->waiting = queue_id;
+    this_task->sleep_time = timeout;
+    moyLeaveCritical();
+    _moyYield();
+
+    /* Now the block has been removed. Let's check the queue. */
+    moyEnterCritical();
+    if (this_queue->status == QUEUE_FILLED) {
+        *item_ptr = this_queue->item_ptr;
+        this_queue->status = QUEUE_EMPTY;
+        moyLeaveCritical();
+        return QUEUE_OK;
+    }
+    moyLeaveCritical();
+    return QUEUE_FAILED;
 }
 
 /*

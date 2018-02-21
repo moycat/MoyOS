@@ -10,8 +10,11 @@
 /* Size of Memory Pool for Stack and Malloc */
 #define MOY_POOL_SIZE 2500
 
-/* Maximum Task Size */
+/* Maximum Task Number */
 #define MOY_TASK_SIZE 10
+
+/* Maximum Queue Number */
+#define MOY_QUEUE_SIZE 10
 
 /* Maximum Length of Task Name */
 #define MOY_TASK_NAME_SIZE 10
