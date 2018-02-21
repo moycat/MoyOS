@@ -2,30 +2,10 @@
  * port.c @ MoyOS # STM32F10x
  *
  * This file should implement device-related functions,
- * such as enabling ticker, save & restore registers
- * and memory allocating.
+ * such as enabling ticker, save & restore registers, etc.
  *
  */
 #include "moyos.h"
-
-/* Memory pool to be allocated from. */
-moy_size *pool[MOY_POOL_SIZE];
-moy_size pool_count = 0;
-
-/*
- * Allocate a stack from pool.
- */
-moy_size* _moyAllocStack(uint32_t stack_size)
-{
-    moyEnterCritical();
-    /* Check if pool is full. */
-    if (pool_count + stack_size >= MOY_POOL_SIZE) {
-        return 0;
-    }
-    pool_count += stack_size;
-    moyLeaveCritical();
-    return (moy_size*)(pool + pool_count);
-}
 
 /*
  * Run when no other tasks can run.
@@ -39,7 +19,7 @@ void _moyIdleTask()
 }
 
 /*
- * Load the context of some task.
+ * Force to load the context of some task.
  * Called only in interruption.
  */
 void _moyLoadContext(MoyTCB* task)
@@ -121,7 +101,7 @@ moy_size _moySyscall(moy_size arg1, moy_size arg2, moy_size arg3, moy_size arg4)
 void _moyInitTicker()
 {
     /* Set tick frequency to switch frequency and enable it. */
-    SysTick_Config(SystemCoreClock / 1000 * MOY_SWITCH_TIME);
+    SysTick_Config(SystemCoreClock / 1000 * MOY_SWITCH_INTERVAL);
 
     NVIC_SetPriorityGrouping(0);
     NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(0, 0, 0));
@@ -130,7 +110,8 @@ void _moyInitTicker()
 }
 
 /*
- * Set PendSV. Request a instant context switch.
+ * Request a instant context switch.
+ * Set PendSV in this port.
  */
 void _moyYield()
 {

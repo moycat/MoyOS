@@ -17,6 +17,6 @@
 #define MOY_TASK_NAME_SIZE 10
 
 /* Interval between Switching Tasks (ms) */
-#define MOY_SWITCH_TIME 1
+#define MOY_SWITCH_INTERVAL 1
 
 #endif //MOYOS_CONFIG_H

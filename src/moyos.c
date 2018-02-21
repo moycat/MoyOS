@@ -17,6 +17,25 @@ uint8_t idle_task_id;
 uint8_t started = 0;
 uint8_t critical_depth = 0;
 
+/* Memory pool to be allocated from. */
+moy_size *pool[MOY_POOL_SIZE];
+moy_size pool_count = 0;
+
+/*
+ * Allocate a stack from pool.
+ */
+moy_size* _moyAllocStack(uint32_t stack_size)
+{
+    moyEnterCritical();
+    /* Check if pool is full. */
+    if (pool_count + stack_size >= MOY_POOL_SIZE) {
+        return 0;
+    }
+    pool_count += stack_size;
+    moyLeaveCritical();
+    return (moy_size*)(pool + pool_count);
+}
+
 /*
  * Start everything.
  */
@@ -155,10 +174,10 @@ void _moyTick()
         MoyTCB *this_task = tasks + i;
         /* Deal with sleep */
         if (this_task->status & TASK_DELAYED) {
-            if (this_task->sleep_time <= MOY_SWITCH_TIME) {
+            if (this_task->sleep_time <= MOY_SWITCH_INTERVAL) {
                 this_task->status ^= TASK_DELAYED;
             } else {
-                this_task->sleep_time -= MOY_SWITCH_TIME;
+                this_task->sleep_time -= MOY_SWITCH_INTERVAL;
             }
         }
     }
